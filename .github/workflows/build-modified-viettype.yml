@@ -1,0 +1,63 @@
+name: Build modified VietType (no installation)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows-build:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: microsoft/setup-msbuild@v2
+      - name: Fetch archived upstream VietType
+        shell: pwsh
+        run: |
+          git clone --depth 1 --branch master https://github.com/dinhngtu/VietType.git VietType-upstream
+          git -C VietType-upstream rev-parse HEAD | Out-File -FilePath UPSTREAM_COMMIT.txt -Encoding ascii
+      - name: Assert expected patch anchors
+        shell: pwsh
+        run: python tools/apply_patch.py --repo VietType-upstream --dry-run
+      - name: Apply SmartSwitch to VietType
+        shell: pwsh
+        run: python tools/apply_patch.py --repo VietType-upstream
+      - name: Run guard tests
+        shell: pwsh
+        run: python -m unittest discover -s tests -p test_apply_patch.py -v
+      - name: Restore Win32
+        working-directory: VietType-upstream
+        shell: pwsh
+        run: msbuild -m -target:Restore -p:Configuration=Release -p:Platform=Win32 .
+      - name: Restore x64
+        working-directory: VietType-upstream
+        shell: pwsh
+        run: msbuild -m -target:Restore -p:Configuration=Release -p:Platform=x64 .
+      - name: Rebuild TSF Win32
+        working-directory: VietType-upstream
+        shell: pwsh
+        run: msbuild -m -target:VietTypeATL:Rebuild -p:Configuration=Release -p:Platform=Win32 .
+      - name: Rebuild TSF x64
+        working-directory: VietType-upstream
+        shell: pwsh
+        run: msbuild -m -target:VietTypeATL:Rebuild -p:Configuration=Release -p:Platform=x64 .
+      - name: Rebuild setup Win32
+        working-directory: VietType-upstream
+        shell: pwsh
+        run: msbuild -m -target:VietTypeSetup:Rebuild -p:Configuration=Release -p:Platform=Win32 .
+      - name: Rebuild setup x64
+        working-directory: VietType-upstream
+        shell: pwsh
+        run: msbuild -m -target:VietTypeSetup:Rebuild -p:Configuration=Release -p:Platform=x64 .
+      - name: Upload outputs (not executed or installed)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: VietType-Modified-Windows-build
+          path: |
+            UPSTREAM_COMMIT.txt
+            VietType-upstream/**/Release/VietTypeATL.dll
+            VietType-upstream/VietTypeSetup/bin/**/*.msi
+          if-no-files-found: warn
